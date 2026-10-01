@@ -21,6 +21,30 @@ class ActionResult(BaseModel):
     entry: dict[str, Any] | None = None
 
 
+class BatchInspectionPayload(BaseModel):
+    """批量提交检测结论：勾选的发电机 id 列表 + 统一结论（合格/退回复检）。"""
+
+    ids: list[int] = Field(default_factory=list)
+    conclusion: str
+
+
+class BatchItemResult(BaseModel):
+    """批量提交中单台发电机的处理结果；被拦下时 entry 为空并在 message 里说明卡点。"""
+
+    id: int
+    name: str | None = None
+    ok: bool
+    message: str
+    entry: dict[str, Any] | None = None
+
+
+class BatchInspectionResult(BaseModel):
+    ok: bool
+    conclusion: str
+    message: str
+    results: list[BatchItemResult]
+
+
 class EntryPayload(BaseModel):
     """登记或修改一条业务记录时提交的字段集合。"""
 

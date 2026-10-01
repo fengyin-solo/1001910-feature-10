@@ -5,8 +5,14 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import ActionResult, EntryPayload, PageResult
-from app.services.generator import GeneratorService
+from app.schemas import (
+    ActionResult,
+    BatchInspectionPayload,
+    BatchInspectionResult,
+    EntryPayload,
+    PageResult,
+)
+from app.services.generator import CONCLUSION_RULES, GeneratorService
 
 router = APIRouter(prefix="/api/generator", tags=["发电机"])
 
@@ -28,6 +34,42 @@ def list_entries(
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
     items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
     return PageResult(items=items, total=total, page=page, size=size)
+
+
+@router.get("/stats")
+def get_stats() -> dict[str, int]:
+    """发电机台账统计：待检测、检测合格、绝缘偏低、已更换各多少台。"""
+    return service.stats()
+
+
+@router.post("/batch-inspection", response_model=BatchInspectionResult)
+def batch_inspection(payload: BatchInspectionPayload) -> BatchInspectionResult:
+    """批量提交检测结论：整批判定合格或整批退回复检，逐台返回结果。
+
+    单台不满足条件（缺绝缘电阻/轴承温度、发电机已更换）时只拦这一台，
+    其余发电机照常生效。
+    """
+    if not payload.ids:
+        raise HTTPException(status_code=400, detail="请至少勾选一台发电机")
+    if payload.conclusion not in CONCLUSION_RULES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"检测结论仅支持：{'、'.join(CONCLUSION_RULES)}",
+        )
+    results, message = service.batch_inspect(payload.ids, payload.conclusion)
+    return BatchInspectionResult(
+        ok=any(item["ok"] for item in results),
+        conclusion=payload.conclusion,
+        message=message,
+        results=results,
+    )
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出发电机清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "generator", "total": total, "items": items}
 
 
 @router.get("/{entry_id}", response_model=dict)
@@ -56,10 +98,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出发电机清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "generator", "total": total, "items": items}
