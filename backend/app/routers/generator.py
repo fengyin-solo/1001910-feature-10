@@ -5,8 +5,15 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import ActionResult, EntryPayload, PageResult
-from app.services.generator import GeneratorService
+from app.schemas import (
+    ActionResult,
+    BatchActionPayload,
+    BatchActionResult,
+    BatchItemResult,
+    EntryPayload,
+    PageResult,
+)
+from app.services.generator import BATCH_VERDICTS, GeneratorService
 
 router = APIRouter(prefix="/api/generator", tags=["发电机"])
 
@@ -28,6 +35,47 @@ def list_entries(
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
     items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
     return PageResult(items=items, total=total, page=page, size=size)
+
+
+@router.get("/stats")
+def get_stats() -> dict[str, int]:
+    """发电机台账统计；合格数与运营概览共用同一口径。"""
+    return service.stats()
+
+
+@router.post("/batch-actions", response_model=BatchActionResult)
+def run_batch_action(payload: BatchActionPayload) -> BatchActionResult:
+    """勾选多台发电机后一次提交检测结论（整批合格 / 整批退回复检）。
+
+    逐台校验逐台返回：缺少绝缘电阻或轴承温度的只拦该台并说明卡在哪一项，
+    已更换的发电机不允许批量退回复检，其余勾选设备照常生效。
+    """
+    ids = [int(value) for value in payload.ids]
+    verdict = payload.verdict.strip()
+    if not ids:
+        raise HTTPException(status_code=400, detail="请先勾选需要提交结论的发电机")
+    if verdict not in BATCH_VERDICTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"检测结论「{verdict}」不支持，仅支持整批{ '、'.join(BATCH_VERDICTS)}",
+        )
+    succeeded, failed, total = service.batch_inspect(ids, verdict)
+    return BatchActionResult(
+        ok=bool(succeeded),
+        message=f"共提交 {total} 台：{len(succeeded)} 台已{verdict}，{len(failed)} 台未生效",
+        total=total,
+        succeeded_count=len(succeeded),
+        failed_count=len(failed),
+        succeeded=[BatchItemResult(**item) for item in succeeded],
+        failed=[BatchItemResult(**item) for item in failed],
+    )
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出发电机清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "generator", "total": total, "items": items}
 
 
 @router.get("/{entry_id}", response_model=dict)
@@ -56,10 +104,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出发电机清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "generator", "total": total, "items": items}

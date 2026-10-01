@@ -28,6 +28,34 @@ class EntryPayload(BaseModel):
     remark: str | None = None
 
 
+class BatchActionPayload(BaseModel):
+    """批量动作：勾选多条记录后一次提交同一个结论。"""
+
+    ids: list[int] = Field(default_factory=list)
+    verdict: str = ""
+
+
+class BatchItemResult(BaseModel):
+    """批量提交里单台设备的处理结果。"""
+
+    id: int
+    code: str | None = None
+    message: str
+    entry: dict[str, Any] | None = None
+
+
+class BatchActionResult(BaseModel):
+    """批量提交回执：汇总成功/失败数量，并逐台给出结果。"""
+
+    ok: bool
+    message: str
+    total: int = 0
+    succeeded_count: int = 0
+    failed_count: int = 0
+    succeeded: list[BatchItemResult] = Field(default_factory=list)
+    failed: list[BatchItemResult] = Field(default_factory=list)
+
+
 
 class WindfarmEntry(BaseModel):
     """风电场站明细结构。"""

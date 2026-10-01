@@ -8,6 +8,12 @@ from typing import Any
 
 from app.seed import SEED_ROWS
 
+# 各模块“合格/通过”类状态登记：发电机台账与概览的合格数共用这一口径。
+QUALIFIED_STATUSES: dict[str, set[str]] = {
+    "generator": {"检测合格"},
+    "accept": {"已通过"},
+}
+
 
 class Store:
     def __init__(self) -> None:
@@ -27,6 +33,13 @@ class Store:
                 return row
         return None
 
+    def qualified_count(self, module: str) -> int:
+        """统计某模块的合格数，概览卡片与各业务台账都从这里取数。"""
+        qualified = QUALIFIED_STATUSES.get(module, set())
+        if not qualified:
+            return 0
+        return sum(1 for row in self.rows(module) if row.get("status") in qualified)
+
     def overview(self) -> dict[str, object]:
         modules: list[dict[str, object]] = []
         for name in self.module_names():
@@ -36,6 +49,7 @@ class Store:
                 "created": len(rows),
                 "pending": sum(1 for row in rows if row.get("pending")),
                 "abnormal": sum(1 for row in rows if row.get("abnormal")),
+                "qualified": self.qualified_count(name),
             })
         cards = [
             {"label": "业务模块", "value": len(modules)},
